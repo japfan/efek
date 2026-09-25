@@ -252,16 +252,39 @@ def test_feature_5_slingshot_and_wipe_blur():
     is_slingshot, fork_data, pinch_data = he.detect_slingshot_hands(hands_data)
     assert is_slingshot is True, "Slingshot gesture should be detected!"
     assert pinch_data["is_pinching"] is True, "Pinch should be detected!"
-    assert pinch_data["stretch_dist"] > 50.0, f"Stretch dist should be > 50px, got {pinch_data['stretch_dist']}"
+    assert pinch_data["stretch_dist"] > 75.0, f"Stretch dist should be > 75px, got {pinch_data['stretch_dist']}"
     print(f"-> Slingshot aiming detected! Prongs dist: {np.linalg.norm(fork_data['p1'] - fork_data['p2']):.1f}, Stretch: {pinch_data['stretch_dist']:.1f}")
+
+    # Verify that Rectangle Hands (Thumb + Index extended, Middle folded) do NOT trigger Slingshot!
+    h_rect_1 = create_hand()
+    h_rect_1[he.INDEX_TIP] = DummyLandmark(0.35, 0.40)
+    h_rect_1[he.INDEX_PIP] = DummyLandmark(0.35, 0.50)
+    h_rect_1[he.THUMB_TIP] = DummyLandmark(0.30, 0.55)
+    h_rect_1[he.MIDDLE_TIP] = DummyLandmark(0.40, 0.65)  # Middle folded!
+    h_rect_1[he.MIDDLE_PIP] = DummyLandmark(0.40, 0.55)
+    h_rect_2 = create_hand()
+    h_rect_2[he.INDEX_TIP] = DummyLandmark(0.65, 0.40)
+    h_rect_2[he.INDEX_PIP] = DummyLandmark(0.65, 0.50)
+    h_rect_2[he.THUMB_TIP] = DummyLandmark(0.70, 0.55)
+    h_rect_2[he.MIDDLE_TIP] = DummyLandmark(0.60, 0.65)
+    h_rect_2[he.MIDDLE_PIP] = DummyLandmark(0.60, 0.55)
+    rect_hands = [(h_rect_1, False, to_screen), (h_rect_2, True, to_screen)]
+    is_rect_slingshot, _, _ = he.detect_slingshot_hands(rect_hands)
+    assert not is_rect_slingshot, "Rectangle gesture MUST NOT trigger slingshot!"
+    print("-> Verified: Rectangle hands do NOT false-trigger slingshot.")
 
     # Test SlingshotManager lifecycle
     mgr = he.SlingshotManager()
     frame = np.full((h, w, 3), 100, dtype=np.uint8)
     particles = []
 
-    # 1. Aiming update
-    text, busy = mgr.update_and_render(frame, hands_data, particles, dt=0.03)
+    # Test suppress_aiming (e.g. when rectangle is active or index touching)
+    text_sup, busy_sup = mgr.update_and_render(frame, hands_data, particles, dt=0.03, suppress_aiming=True)
+    assert not busy_sup and mgr.state == "IDLE", "suppress_aiming=True must prevent slingshot aiming!"
+    print("-> Verified: suppress_aiming prevents slingshot activation when rectangle is active.")
+
+    # 1. Aiming update (without suppression)
+    text, busy = mgr.update_and_render(frame, hands_data, particles, dt=0.03, suppress_aiming=False)
     assert busy is True
     assert mgr.state == "AIMING"
     print(f"-> Manager entered AIMING state ({text})")

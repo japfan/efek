@@ -725,52 +725,45 @@ def detect_slingshot_hands(hands_data):
             lm_f, is_r_f, to_s_f = h_fork
             lm_p, is_r_p, to_s_p = h_pinch
 
-            # 1. Periksa apakah h_fork adalah garpu ketapel
-            # Opsi A: Pose 'V' (Telunjuk & Tengah terentang, Manis & Kelingking terlipat)
+            # 1. Periksa apakah h_fork adalah garpu ketapel murni
+            # HANYA Pose 'V' / Peace (Telunjuk & Tengah terentang terbuka, Manis & Kelingking terlipat)
+            # *Pose 'L' sengaja ditiadakan agar TIDAK BENTROK dengan Persegi Panjang (Gesture 3)*
             v_shape = (
                 not is_finger_folded(lm_f, INDEX_TIP, INDEX_PIP)
                 and not is_finger_folded(lm_f, MIDDLE_TIP, MIDDLE_PIP)
                 and is_finger_folded(lm_f, RING_TIP, RING_PIP)
                 and is_finger_folded(lm_f, PINKY_TIP, PINKY_PIP)
             )
-            # Opsi B: Pose 'L' / Jempol & Telunjuk mengembang lebar
-            l_shape = (
-                not is_finger_folded(lm_f, INDEX_TIP, INDEX_PIP)
-                and is_finger_folded(lm_f, RING_TIP, RING_PIP)
-                and is_finger_folded(lm_f, PINKY_TIP, PINKY_PIP)
-            )
 
-            if not (v_shape or l_shape):
+            if not v_shape:
                 continue
 
-            # Tentukan dua ujung cabang ketapel
+            # Tentukan dua ujung cabang ketapel (Telunjuk & Jari Tengah)
             pt_idx = np.array(to_s_f(lm_f[INDEX_TIP]), dtype=np.float32)
-            if v_shape:
-                pt_other = np.array(to_s_f(lm_f[MIDDLE_TIP]), dtype=np.float32)
-            else:
-                pt_other = np.array(to_s_f(lm_f[THUMB_TIP]), dtype=np.float32)
+            pt_mid = np.array(to_s_f(lm_f[MIDDLE_TIP]), dtype=np.float32)
 
-            prong_dist = float(np.linalg.norm(pt_idx - pt_other))
-            if prong_dist < 28.0:
+            prong_dist = float(np.linalg.norm(pt_idx - pt_mid))
+            # Cabang 'V' harus terbuka renggang
+            if prong_dist < 30.0:
                 continue
 
-            fork_center = (pt_idx + pt_other) * 0.5
+            fork_center = (pt_idx + pt_mid) * 0.5
             fork_base = np.array(to_s_f(lm_f[WRIST]), dtype=np.float32)
 
-            # 2. Periksa apakah h_pinch adalah tangan penjepit
+            # 2. Periksa apakah h_pinch adalah tangan penjepit yang rapat
             p_thumb = np.array(to_s_p(lm_p[THUMB_TIP]), dtype=np.float32)
             p_index = np.array(to_s_p(lm_p[INDEX_TIP]), dtype=np.float32)
             pinch_dist = float(np.linalg.norm(p_thumb - p_index))
 
-            # Cubitan dianggap aktif jika jarak ujung jempol dan telunjuk dekat
-            is_pinching = pinch_dist < 55.0
+            # Cubitan harus benar-benar rapat (< 42 px)
+            is_pinching = pinch_dist < 42.0
             pinch_pt = (p_thumb + p_index) * 0.5
 
             stretch_dist = float(np.linalg.norm(pinch_pt - fork_center))
 
             fork_data = {
                 "p1": pt_idx,
-                "p2": pt_other,
+                "p2": pt_mid,
                 "center": fork_center,
                 "base": fork_base,
             }
@@ -825,7 +818,7 @@ class SlingshotManager:
         self.white_flash = 0.0
         self.prev_wipes.clear()
 
-    def update_and_render(self, frame, hands_data, foreground_particles, dt):
+    def update_and_render(self, frame, hands_data, foreground_particles, dt, suppress_aiming=False):
         h, w = frame.shape[:2]
         now = time.time()
         detected_text = None
@@ -986,74 +979,75 @@ class SlingshotManager:
             return detected_text, is_busy
 
         # ---------------- 3. DETEKSI POSE KETAPEL (AIMING / PULLING) ----------------
-        is_slingshot, fork_data, pinch_data = detect_slingshot_hands(hands_data)
+        if not suppress_aiming:
+            is_slingshot, fork_data, pinch_data = detect_slingshot_hands(hands_data)
 
-        if is_slingshot and pinch_data["is_pinching"]:
-            stretch_dist = pinch_data["stretch_dist"]
+            if is_slingshot and pinch_data["is_pinching"]:
+                stretch_dist = pinch_data["stretch_dist"]
 
-            if stretch_dist > 50.0:
-                self.state = "AIMING"
-                is_busy = True
-                self.aim_fork = fork_data
-                self.aim_pinch = pinch_data
-                self.last_aim_time = now
-                self.max_stretch = max(self.max_stretch, stretch_dist)
+                if stretch_dist > 75.0:
+                    self.state = "AIMING"
+                    is_busy = True
+                    self.aim_fork = fork_data
+                    self.aim_pinch = pinch_data
+                    self.last_aim_time = now
+                    self.max_stretch = max(self.max_stretch, stretch_dist)
 
-                pct_power = min(100, int((stretch_dist - 50.0) / 180.0 * 100))
-                detected_text = f"Ketapel [Tarik: {pct_power}% 🏹]"
+                    pct_power = min(100, int((stretch_dist - 75.0) / 180.0 * 100))
+                    detected_text = f"Ketapel [Tarik: {pct_power}% 🏹]"
 
-                # Visual Cabang Ketapel (Fork)
-                p1 = (int(fork_data["p1"][0]), int(fork_data["p1"][1]))
-                p2 = (int(fork_data["p2"][0]), int(fork_data["p2"][1]))
-                p_center = (int(fork_data["center"][0]), int(fork_data["center"][1]))
-                p_base = (int(fork_data["base"][0]), int(fork_data["base"][1]))
+                    # Visual Cabang Ketapel (Fork)
+                    p1 = (int(fork_data["p1"][0]), int(fork_data["p1"][1]))
+                    p2 = (int(fork_data["p2"][0]), int(fork_data["p2"][1]))
+                    p_center = (int(fork_data["center"][0]), int(fork_data["center"][1]))
+                    p_base = (int(fork_data["base"][0]), int(fork_data["base"][1]))
 
-                # Batang ketapel
-                cv2.line(frame, p_base, p_center, (30, 160, 220), 6, cv2.LINE_AA)
-                cv2.line(frame, p_center, p1, (40, 200, 255), 5, cv2.LINE_AA)
-                cv2.line(frame, p_center, p2, (40, 200, 255), 5, cv2.LINE_AA)
+                    # Batang ketapel
+                    cv2.line(frame, p_base, p_center, (30, 160, 220), 6, cv2.LINE_AA)
+                    cv2.line(frame, p_center, p1, (40, 200, 255), 5, cv2.LINE_AA)
+                    cv2.line(frame, p_center, p2, (40, 200, 255), 5, cv2.LINE_AA)
 
-                # Cincin cabang
-                cv2.circle(frame, p1, 8, (0, 240, 255), -1, cv2.LINE_AA)
-                cv2.circle(frame, p2, 8, (0, 240, 255), -1, cv2.LINE_AA)
+                    # Cincin cabang
+                    cv2.circle(frame, p1, 8, (0, 240, 255), -1, cv2.LINE_AA)
+                    cv2.circle(frame, p2, 8, (0, 240, 255), -1, cv2.LINE_AA)
 
-                # Karet Ketapel Elastis (Neon Glowing Rubber Bands)
-                pinch_pt = (int(pinch_data["pt"][0]), int(pinch_data["pt"][1]))
+                    # Karet Ketapel Elastis (Neon Glowing Rubber Bands)
+                    pinch_pt = (int(pinch_data["pt"][0]), int(pinch_data["pt"][1]))
 
-                band_overlay = np.zeros_like(frame)
-                cv2.line(band_overlay, p1, pinch_pt, (0, 215, 255), 7, cv2.LINE_AA)
-                cv2.line(frame, p1, pinch_pt, (255, 255, 255), 2, cv2.LINE_AA)
+                    band_overlay = np.zeros_like(frame)
+                    cv2.line(band_overlay, p1, pinch_pt, (0, 215, 255), 7, cv2.LINE_AA)
+                    cv2.line(frame, p1, pinch_pt, (255, 255, 255), 2, cv2.LINE_AA)
 
-                cv2.line(band_overlay, p2, pinch_pt, (0, 215, 255), 7, cv2.LINE_AA)
-                cv2.line(frame, p2, pinch_pt, (255, 255, 255), 2, cv2.LINE_AA)
+                    cv2.line(band_overlay, p2, pinch_pt, (0, 215, 255), 7, cv2.LINE_AA)
+                    cv2.line(frame, p2, pinch_pt, (255, 255, 255), 2, cv2.LINE_AA)
 
-                small_band = cv2.resize(band_overlay, (w // 2, h // 2), interpolation=cv2.INTER_LINEAR)
-                band_glow_sm = cv2.GaussianBlur(small_band, (9, 9), 0)
-                band_glow = cv2.resize(band_glow_sm, (w, h), interpolation=cv2.INTER_LINEAR)
-                cv2.addWeighted(frame, 1.0, band_glow, 1.30, 0, dst=frame)
+                    small_band = cv2.resize(band_overlay, (w // 2, h // 2), interpolation=cv2.INTER_LINEAR)
+                    band_glow_sm = cv2.GaussianBlur(small_band, (9, 9), 0)
+                    band_glow = cv2.resize(band_glow_sm, (w, h), interpolation=cv2.INTER_LINEAR)
+                    cv2.addWeighted(frame, 1.0, band_glow, 1.30, 0, dst=frame)
 
-                # Peluru Energi di Kantung Ketapel
-                bullet_r = int(12 + (stretch_dist / 250.0) * 10)
-                cv2.circle(frame, pinch_pt, bullet_r + 4, (0, 240, 255), 2, cv2.LINE_AA)
-                cv2.circle(frame, pinch_pt, bullet_r, (40, 180, 255), -1, cv2.LINE_AA)
-                cv2.circle(frame, pinch_pt, int(bullet_r * 0.4), (255, 255, 255), -1, cv2.LINE_AA)
+                    # Peluru Energi di Kantung Ketapel
+                    bullet_r = int(12 + (stretch_dist / 250.0) * 10)
+                    cv2.circle(frame, pinch_pt, bullet_r + 4, (0, 240, 255), 2, cv2.LINE_AA)
+                    cv2.circle(frame, pinch_pt, bullet_r, (40, 180, 255), -1, cv2.LINE_AA)
+                    cv2.circle(frame, pinch_pt, int(bullet_r * 0.4), (255, 255, 255), -1, cv2.LINE_AA)
 
-                # Percikan energi di peluru
-                if random.random() < 0.60:
-                    foreground_particles.append(
-                        SparkleParticle(
-                            pinch_pt[0] + random.uniform(-15, 15),
-                            pinch_pt[1] + random.uniform(-15, 15),
-                            color=(0, 240, 255),
+                    # Percikan energi di peluru
+                    if random.random() < 0.60:
+                        foreground_particles.append(
+                            SparkleParticle(
+                                pinch_pt[0] + random.uniform(-15, 15),
+                                pinch_pt[1] + random.uniform(-15, 15),
+                                color=(0, 240, 255),
+                            )
                         )
-                    )
 
-                return detected_text, is_busy
+                    return detected_text, is_busy
 
         # ---------------- 4. DETEKSI PELEPASAN PELURU (RELEASE / FIRE) ----------------
         if self.state == "AIMING":
-            # Jika sebelumnya membidik dan teregang cukup jauh (> 70 px), dan sekarang cubitan dibuka atau dilepas
-            if self.aim_pinch is not None and self.max_stretch >= 70.0:
+            # Jika sebelumnya membidik dan teregang cukup jauh (> 90 px), dan sekarang cubitan dibuka atau dilepas
+            if self.aim_pinch is not None and self.max_stretch >= 90.0:
                 # RELEASE!
                 self.state = "FLYING"
                 is_busy = True
@@ -1306,9 +1300,17 @@ def main():
                         sx, sy = to_screen(pt)
                         cv2.circle(display_frame, (sx, sy), 3, (0, 255, 255), -1)
 
+        # Cek apakah telunjuk sedang bersentuhan atau gesture persegi/kristal sedang aktif
+        is_index_touching = False
+        if len(hands_data) >= 2:
+            hands_for_frame = [(h_item[0], h_item[2]) for h_item in hands_data[:2]]
+            is_index_touching, _, _ = check_index_fingers_touching(hands_for_frame, touch_dist_threshold=55.0)
+
+        suppress_aiming = frame_active or is_index_touching or crystal_active
+
         # ================= GESTURE 5: EFEK KETAPEL (SLINGSHOT TO CAMERA & WIPE BLUR) =================
         slingshot_text, is_slingshot_busy = slingshot_manager.update_and_render(
-            display_frame, hands_data, foreground_particles, dt
+            display_frame, hands_data, foreground_particles, dt, suppress_aiming=suppress_aiming
         )
         if slingshot_text:
             detected_gestures.append(slingshot_text)
