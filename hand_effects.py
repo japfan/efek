@@ -14,6 +14,7 @@ Cara Menjalankan:
 
 Kontrol Tombol:
     ESC / Q : Keluar dari aplikasi
+    H / T   : Sembunyikan / tampilkan semua elemen teks UI (Clean View Mode)
     B       : Toggle manual filter Black & White (B&W)
     L       : Tampilkan / sembunyikan titik landmark tangan (debug)
     C       : Bersihkan partikel yang sedang aktif di layar
@@ -463,7 +464,7 @@ def get_two_handed_rectangle_corners(hands_screen):
     return corners, angle_deg
 
 
-def draw_dynamic_rectangle(frame, corners, angle_deg, particles, theme_color=(255, 215, 60)):
+def draw_dynamic_rectangle(frame, corners, angle_deg, particles, theme_color=(255, 215, 60), show_text=True):
     """
     Menggambar shape persegi panjang neon bersih (tanpa garis silinder) yang responsif:
     - Multi-layer neon glow tebal + garis putih inti
@@ -521,8 +522,9 @@ def draw_dynamic_rectangle(frame, corners, angle_deg, particles, theme_color=(25
     cv2.circle(frame, (mx, my), 5, (255, 255, 255), -1, cv2.LINE_AA)
     cv2.circle(frame, (mx, my), 11, theme_color, 1, cv2.LINE_AA)
 
-    deg_text = f"Rotasi: {int(angle_deg % 360)} deg"
-    cv2.putText(frame, deg_text, (mx - 45, my - 16), cv2.FONT_HERSHEY_PLAIN, 0.95, (255, 255, 255), 1, cv2.LINE_AA)
+    if show_text:
+        deg_text = f"Rotasi: {int(angle_deg % 360)} deg"
+        cv2.putText(frame, deg_text, (mx - 45, my - 16), cv2.FONT_HERSHEY_PLAIN, 0.95, (255, 255, 255), 1, cv2.LINE_AA)
 
     # 5. Partikel kilau di sepanjang tepian
     for i in range(4):
@@ -828,7 +830,7 @@ class SlingshotManager:
         self.white_flash = 0.0
         self.prev_wipes.clear()
 
-    def update_and_render(self, frame, hands_data, foreground_particles, dt, suppress_aiming=False):
+    def update_and_render(self, frame, hands_data, foreground_particles, dt, suppress_aiming=False, show_text=True):
         h, w = frame.shape[:2]
         now = time.time()
         detected_text = None
@@ -932,16 +934,17 @@ class SlingshotManager:
                 cv2.add(self.p1, self.p2, dst=frame)
 
                 # Tampilkan info persentase embun tersisa di bawah
-                pct_clean = int((1.0 - fog_ratio) * 100)
-                cv2.putText(frame, f"Kebersihan Lensa: {pct_clean}%", (w // 2 - 120, h - 35), cv2.FONT_HERSHEY_DUPLEX, 0.7, (0, 0, 0), 3, cv2.LINE_AA)
-                cv2.putText(frame, f"Kebersihan Lensa: {pct_clean}%", (w // 2 - 120, h - 35), cv2.FONT_HERSHEY_DUPLEX, 0.7, (0, 240, 255), 1, cv2.LINE_AA)
+                if show_text:
+                    pct_clean = int((1.0 - fog_ratio) * 100)
+                    cv2.putText(frame, f"Kebersihan Lensa: {pct_clean}%", (w // 2 - 120, h - 35), cv2.FONT_HERSHEY_DUPLEX, 0.7, (0, 0, 0), 3, cv2.LINE_AA)
+                    cv2.putText(frame, f"Kebersihan Lensa: {pct_clean}%", (w // 2 - 120, h - 35), cv2.FONT_HERSHEY_DUPLEX, 0.7, (0, 240, 255), 1, cv2.LINE_AA)
 
             return detected_text, is_busy
 
         # Bersihkan riwayat usap jika fog tidak aktif
         self.prev_wipes.clear()
 
-        if self.clean_shimmer_timer > now:
+        if self.clean_shimmer_timer > now and show_text:
             cv2.putText(frame, "Lensa Kamera Bersih! ✨", (w // 2 - 160, 110), cv2.FONT_HERSHEY_DUPLEX, 0.85, (0, 0, 0), 3, cv2.LINE_AA)
             cv2.putText(frame, "Lensa Kamera Bersih! ✨", (w // 2 - 160, 110), cv2.FONT_HERSHEY_DUPLEX, 0.85, (0, 255, 220), 1, cv2.LINE_AA)
 
@@ -1305,8 +1308,12 @@ def draw_hud(
     fog_active=False,
     is_bw=False,
     is_bw_transition=False,
+    show_text=True,
 ):
     """Menampilkan status gesture, status unlock bunga, dan FPS dengan tampilan negatif/kontras tinggi."""
+    if not show_text:
+        return
+
     h, w = frame.shape[:2]
 
     # Pill Kiri: Status Gesture & Mode
@@ -1397,7 +1404,7 @@ def draw_hud(
     # Tombol shortcut kontrol
     cv2.putText(
         frame,
-        "ESC: Out | R: Reset | B: B&W | L: Mark | C: Clr",
+        "ESC: Out | H: Hide Text | B: B&W | R: Reset",
         (rx1 + 16, 64),
         cv2.FONT_HERSHEY_PLAIN,
         0.82,
@@ -1453,6 +1460,7 @@ def main():
     start_time = time.perf_counter()
     fps_smooth = 30.0
     show_landmarks = False
+    show_ui_text = True
 
     gesture1_unlocked = False
     frame_active = False
@@ -1475,7 +1483,7 @@ def main():
     print("4. TELAPAK BERSENTUHAN & MEKAR  -> Objek 3D Kristal Prisma Holografik 💎")
     print("5. EFEK KETAPEL & USAP KAMERA   -> Ketapel ke Kamera (Frosted Blur) & Usap untuk Bersihkan! 🏹🖐️")
     print("6. DUA TANGAN TARIK KE BAWAH    -> Filter Black & White (B&W) Sinematik Push dari Atas 🎬⬇️")
-    print("Tombol: 'ESC' keluar, 'B' toggle B&W, 'R' reset, 'L' landmark, 'C' clear partikel.")
+    print("Tombol: 'ESC' keluar, 'H' hide/tampil teks, 'B' toggle B&W, 'R' reset, 'L' landmark, 'C' clear.")
     print("=======================================================\n")
 
     while cap.isOpened():
@@ -1538,7 +1546,7 @@ def main():
 
         # ================= GESTURE 5: EFEK KETAPEL (SLINGSHOT TO CAMERA & WIPE BLUR) =================
         slingshot_text, is_slingshot_busy = slingshot_manager.update_and_render(
-            display_frame, hands_data, foreground_particles, dt, suppress_aiming=suppress_aiming
+            display_frame, hands_data, foreground_particles, dt, suppress_aiming=suppress_aiming, show_text=show_ui_text
         )
         if slingshot_text:
             detected_gestures.append(slingshot_text)
@@ -1606,6 +1614,7 @@ def main():
                             smoothed_angle,
                             foreground_particles,
                             theme_color=(255, 215, 60),
+                            show_text=show_ui_text,
                         )
                 else:
                     smoothed_corners = None
@@ -1756,6 +1765,7 @@ def main():
             fog_active=slingshot_manager.fog_active,
             is_bw=bw_filter_manager.is_bw,
             is_bw_transition=bw_filter_manager.in_transition,
+            show_text=show_ui_text,
         )
 
         cv2.imshow("Hand Gesture Filter - Love, Bunga, Persegi, 3D Kristal, Ketapel, & Filter B&W", display_frame)
@@ -1779,6 +1789,8 @@ def main():
 
         if key in (27, ord("q"), ord("Q")):
             break
+        elif key in (ord("h"), ord("H"), ord("t"), ord("T")):
+            show_ui_text = not show_ui_text
         elif key in (ord("b"), ord("B")):
             bw_filter_manager.trigger_toggle(now, is_blur_active=slingshot_manager.fog_active)
         elif key in (ord("l"), ord("L")):

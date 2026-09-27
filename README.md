@@ -47,7 +47,8 @@ python hand_effects.py
 
 ### Tombol Kontrol:
 - **`ESC`** atau **`Q`** : Keluar dari aplikasi.
-- **`B`** : Toggle manual filter Black & White (B&W).
+- **`H`** atau **`T`** : **Sembunyikan / tampilkan semua elemen teks UI (Clean View Mode)**.
+- **`B`** : Toggle manual filter Black & White (B&W) saat blur aktif.
 - **`R`** : Reset semua gesture, status unlock, embun kamera, dan filter B&W.
 - **`L`** : Tampilkan/sembunyikan titik landmark tangan (mode debug).
 - **`C`** : Bersihkan partikel yang sedang aktif di layar.

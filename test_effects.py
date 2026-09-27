@@ -433,6 +433,40 @@ def test_feature_6_black_white_pull_down_and_push_transition():
     print("-> Trigger toggle with blur verified.")
 
 
+def test_hide_all_text_elements():
+    print("Testing Shortcut to Hide All Text Elements (Clean UI Mode)...")
+    h, w = 720, 1280
+    frame_blank = np.zeros((h, w, 3), dtype=np.uint8)
+
+    # 1. Test draw_hud with show_text=False: should NOT draw any HUD or text at all!
+    frame_test = frame_blank.copy()
+    he.draw_hud(
+        frame_test,
+        active_gesture_text="Test Gesture",
+        fps=30.0,
+        gesture1_unlocked=True,
+        frame_active=True,
+        show_text=False,
+    )
+    assert np.all(frame_test == 0), "draw_hud with show_text=False must not draw any text or HUD pills!"
+    print("-> Verified: draw_hud with show_text=False leaves frame completely clean.")
+
+    # 2. Test draw_dynamic_rectangle with show_text=False
+    corners = [(400, 300), (800, 300), (800, 500), (400, 500)]
+    particles = []
+    he.draw_dynamic_rectangle(frame_test, corners, 45.0, particles, show_text=False)
+    assert np.count_nonzero(frame_test) > 0, "Rectangle shape itself should still draw!"
+    print("-> Verified: draw_dynamic_rectangle renders cleanly without text.")
+
+    # 3. Test slingshot manager with show_text=False
+    mgr = he.SlingshotManager()
+    mgr.clean_shimmer_timer = time.time() + 1.0
+    frame_sling = frame_blank.copy()
+    mgr.update_and_render(frame_sling, [], particles, dt=0.03, show_text=False)
+    assert np.all(frame_sling == 0), "Slingshot text must not render when show_text=False!"
+    print("-> Verified: Slingshot manager respects show_text=False.")
+
+
 if __name__ == "__main__":
     he.ensure_models()
     test_sprites()
@@ -444,5 +478,7 @@ if __name__ == "__main__":
     test_feature_4_cupped_hands_and_3d_crystal()
     test_feature_5_slingshot_and_wipe_blur()
     test_feature_6_black_white_pull_down_and_push_transition()
+    test_hide_all_text_elements()
     print("\nALL AUTOMATED TESTS PASSED!")
+
 
