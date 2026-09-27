@@ -325,6 +325,106 @@ def test_feature_5_slingshot_and_wipe_blur():
     print("-> 100% clean threshold verified: Camera clear shimmer triggered successfully.")
 
 
+def test_feature_6_black_white_pull_down_and_push_transition():
+    print("Testing Feature 6: Two-Hand Pull Down & Black & White Push Transition...")
+    w, h = 1280, 720
+    to_screen = lambda pt: (int(pt.x * w), int(pt.y * h))
+
+    mgr = he.BlackWhiteFilterManager()
+    assert mgr.is_bw is False and mgr.in_transition is False
+
+    # 1. Test stationary hands: should NOT trigger pull-down
+    t0 = 100.0
+    h_l = create_hand()
+    h_l[he.WRIST] = DummyLandmark(0.30, 0.35)
+    h_l[he.MIDDLE_MCP] = DummyLandmark(0.30, 0.32)
+
+    h_r = create_hand()
+    h_r[he.WRIST] = DummyLandmark(0.70, 0.35)
+    h_r[he.MIDDLE_MCP] = DummyLandmark(0.70, 0.32)
+
+    hands_stationary = [(h_l, False, to_screen), (h_r, True, to_screen)]
+    for step in range(4):
+        txt = mgr.update_and_detect_gesture(hands_stationary, t0 + step * 0.03)
+        assert txt is None, "Stationary hands should not trigger pull down!"
+    print("-> Stationary hands correctly ignored.")
+
+    # 2. Test downward pull movement with both hands
+    y_steps = [0.35, 0.44, 0.54, 0.65]
+    detected_text = None
+    for idx, y_val in enumerate(y_steps):
+        t_curr = t0 + 0.15 + idx * 0.04
+        hl_mov = create_hand()
+        hl_mov[he.WRIST] = DummyLandmark(0.30, y_val)
+        hl_mov[he.MIDDLE_MCP] = DummyLandmark(0.30, y_val - 0.03)
+
+        hr_mov = create_hand()
+        hr_mov[he.WRIST] = DummyLandmark(0.70, y_val)
+        hr_mov[he.MIDDLE_MCP] = DummyLandmark(0.70, y_val - 0.03)
+
+        hands_pull = [(hl_mov, False, to_screen), (hr_mov, True, to_screen)]
+        res = mgr.update_and_detect_gesture(hands_pull, t_curr)
+        if res:
+            detected_text = res
+
+    assert detected_text is not None, "Two-hand downward pull gesture should be detected!"
+    assert mgr.in_transition is True, "Manager should enter in_transition state!"
+    assert mgr.target_bw is True, "Target state should be Black & White!"
+    print(f"-> Pull down gesture triggered successfully ({detected_text}).")
+
+    # 3. Test push transition rendering (Push from top)
+    test_frame = np.full((h, w, 3), (30, 120, 220), dtype=np.uint8)  # Distinct blue-orange color
+    particles = []
+    t_mid = mgr.transition_start_time + (mgr.transition_duration * 0.5)
+
+    render_txt = mgr.render_and_apply(test_frame, particles, t_mid)
+    assert mgr.in_transition is True
+    assert "Push Filter" in render_txt or "Filter Push" in render_txt
+
+    # At midpoint, top area should be Black & White (B == G == R approx)
+    # and bottom area should still be the original color (30, 120, 220)
+    split_y = int(0.5 * h)
+    top_pixel = test_frame[split_y - 80, w // 2]
+    bottom_pixel = test_frame[split_y + 80, w // 2]
+
+    # Grayscale pixel has equal or very close B, G, R components
+    assert abs(int(top_pixel[0]) - int(top_pixel[1])) <= 2 and abs(int(top_pixel[1]) - int(top_pixel[2])) <= 2, (
+        f"Top region should be Black & White, got pixel: {top_pixel}"
+    )
+    # Bottom pixel should be original color
+    assert np.allclose(bottom_pixel, [30, 120, 220], atol=3), (
+        f"Bottom region should be original color, got pixel: {bottom_pixel}"
+    )
+    # Laser sparks should be generated on the dividing line
+    assert len(particles) > 0, "Laser divider sparkles should be generated during push transition!"
+    print("-> Push from top verified: Top is B&W, Bottom is Color, Laser divider active.")
+
+    # 4. Test transition completion
+    t_end = mgr.transition_start_time + mgr.transition_duration + 0.1
+    mgr.render_and_apply(test_frame, particles, t_end)
+    assert mgr.in_transition is False, "Transition should complete after duration!"
+    assert mgr.is_bw is True, "Filter state should be fully Black & White!"
+
+    # Now bottom pixel should also be Black & White
+    final_pixel = test_frame[h - 50, w // 2]
+    assert abs(int(final_pixel[0]) - int(final_pixel[1])) <= 2, f"Entire frame should be B&W, got {final_pixel}"
+    print("-> Full Black & White active state verified.")
+
+    # 5. Test toggle back to color with push from top
+    mgr.trigger_toggle(t_end + 1.0)
+    assert mgr.in_transition is True and mgr.target_bw is False
+    test_frame_color = np.full((h, w, 3), (30, 120, 220), dtype=np.uint8)
+    t_toggle_mid = mgr.transition_start_time + (mgr.transition_duration * 0.5)
+    mgr.render_and_apply(test_frame_color, particles, t_toggle_mid)
+
+    # Top should now be color, bottom should be B&W
+    top_pixel_color = test_frame_color[split_y - 80, w // 2]
+    bottom_pixel_bw = test_frame_color[split_y + 80, w // 2]
+    assert np.allclose(top_pixel_color, [30, 120, 220], atol=3), "Top should be Color pushed down!"
+    assert abs(int(bottom_pixel_bw[0]) - int(bottom_pixel_bw[1])) <= 2, "Bottom should remain B&W before push arrives!"
+    print("-> Toggle push back to Color verified.")
+
+
 if __name__ == "__main__":
     he.ensure_models()
     test_sprites()
@@ -335,4 +435,6 @@ if __name__ == "__main__":
     test_async_segmenter()
     test_feature_4_cupped_hands_and_3d_crystal()
     test_feature_5_slingshot_and_wipe_blur()
+    test_feature_6_black_white_pull_down_and_push_transition()
     print("\nALL AUTOMATED TESTS PASSED!")
+

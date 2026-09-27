@@ -22,11 +22,17 @@ Filter webcam real-time interaktif berbasis **OpenCV** dan **MediaPipe Tasks (Ha
      - Rusuk neon glow menyala di setiap jari dan cincin simpul bercahaya di setiap ujung jari.
      - Mengikuti deformasi dan pergerakan tangan secara real-time.
 5. **Efek Ketapel ke Kamera & Usap Kamera Jadi Bersih** 🏹🌫️🖐️
-   - **Pose Ketapel**: Satu tangan membentuk cabang ketapel (pose 'V' atau 'L') dan tangan satunya mencubit (*pinch*) karet ketapel lalu menariknya ke belakang (*pull & stretch*).
+   - **Pose Ketapel**: Satu tangan membentuk cabang ketapel (pose 'V' murni) dan tangan satunya mencubit (*pinch*) karet ketapel lalu menariknya ke belakang (*pull & stretch*).
    - Muncul tali karet neon elastis bergetar dan peluru energi bercahaya di kantung ketapel dengan indikator daya tarikan (0% - 100%).
    - **Lepaskan Cubitan**: Peluru energi melesat kencang menuju lensa kamera (3D zoom, radial speed lines, trail particles).
    - **Tabrakan (Impact)**: Guncangan layar (*screen shake*), kilatan cahaya (*white flash*), dan seluruh tampilan kamera berubah menjadi **kaca berembun / frosted glass blur**!
    - **Usap Kamera Jadi Bersih**: Cukup usapkan telapak tangan Anda di depan kamera seperti mengusap kaca jendela berembun. Sapuan tangan Anda akan menghapus embun secara real-time dengan percikan air berkilau hingga kamera jernih kembali 100%!
+6. **Dua Tangan Menarik dari Atas ke Bawah -> Filter Black & White (Push dari Atas)** 🎬⬇️
+   - Letakkan kedua tangan di bagian atas lalu gerakkan menarik ke bawah secara bersamaan (*two-hand downward pull*).
+   - Memicu **animasi transisi tirai/laser push dari atas ke bawah**:
+     - Garis laser pembatas neon bercahaya menyapu dari $y=0$ turun ke bawah dengan taburan percikan kilau (*laser sparks*).
+     - Mengubah kamera menjadi **filter Black & White (B&W) monokrom sinematik** dengan kontras tinggi ala film noir.
+   - **Toggle Reversibel**: Menarik kedua tangan ke bawah lagi akan mendorong (*push*) kembali filter warna asli dari atas ke bawah!
 
 ---
 
@@ -40,7 +46,8 @@ python hand_effects.py
 
 ### Tombol Kontrol:
 - **`ESC`** atau **`Q`** : Keluar dari aplikasi.
-- **`R`** : Reset semua gesture, status unlock, embun kamera, dan kristal 3D.
+- **`B`** : Toggle manual filter Black & White (B&W).
+- **`R`** : Reset semua gesture, status unlock, embun kamera, dan filter B&W.
 - **`L`** : Tampilkan/sembunyikan titik landmark tangan (mode debug).
 - **`C`** : Bersihkan partikel yang sedang aktif di layar.
 
@@ -53,6 +60,6 @@ python hand_effects.py
   - `flower_sakura.png` : Sprite bunga sakura.
   - `flower_bloom.png` : Sprite bunga mekar.
   - `flower_petal.png` : Sprite kelopak bunga berguguran.
-- `test_effects.py` : Automated test suite untuk seluruh 5 fitur gesture dan rendering efek.
+- `test_effects.py` : Automated test suite untuk seluruh 6 fitur gesture dan rendering efek.
 - `hand_landmarker.task` : Model AI deteksi tangan dari Google MediaPipe.
 - `selfie_multiclass.tflite` : Model AI segmentasi tubuh untuk efek latar belakang.

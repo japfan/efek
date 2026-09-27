@@ -5,15 +5,19 @@ Hand Gesture Filter - Webcam Effect Real-Time
    (menggunakan AI Segmentation agar bunga melayang di belakang tubuh pengguna!)
 3. Telunjuk Kiri & Kanan Bersentuhan lalu Melebar -> Membentuk shape Persegi Panjang Neon Dinamis
    yang bisa di-twist dan diputar bebas 360 derajat mengikuti jari!
+4. Telapak Tangan Bersentuhan & Jari-Jari Renggang -> Objek Holografik 3D Kristal Prisma 9 Sisi
+5. Pose Ketapel (Tangan Cabang 'V' + Tangan Cubit Tarik Karet) -> Tembak Peluru ke Kamera & Efek Embun Kaca (Di-usap untuk Bersih)
+6. Dua Tangan Menarik dari Atas ke Bawah -> Filter Black & White (B&W) Sinematik dengan Animasi Tirai Push dari Atas!
 
 Cara Menjalankan:
     python hand_effects.py
 
 Kontrol Tombol:
     ESC / Q : Keluar dari aplikasi
+    B       : Toggle manual filter Black & White (B&W)
     L       : Tampilkan / sembunyikan titik landmark tangan (debug)
     C       : Bersihkan partikel yang sedang aktif di layar
-    R       : Reset status unlock bunga & reset frame persegi
+    R       : Reset seluruh efek
 """
 
 import os
@@ -1093,6 +1097,187 @@ class SlingshotManager:
         return detected_text, is_busy
 
 
+# ----------------- GESTURE 6: BLACK & WHITE FILTER MANAGER (PUSH FROM TOP) -----------------
+class BlackWhiteFilterManager:
+    """
+    Mengelola Efek Filter Black & White (B&W) Sinematik dengan Animasi Tirai Push dari Atas:
+    - Deteksi gesture: kedua tangan menarik dari atas ke bawah (two-hand pull down).
+    - Transisi: animasi tirai pemisah / laser push bergerak halus dari y=0 ke y=h (atas ke bawah).
+    - Filter: Black & White monokrom sinematik berkecepatan tinggi (< 1.2 ms).
+    - Toggle: menarik ke bawah lagi akan mengembalikan filter warna (push dari atas juga).
+    """
+
+    def __init__(self):
+        self.is_bw = False
+        self.in_transition = False
+        self.target_bw = False
+        self.transition_start_time = 0.0
+        self.transition_duration = 0.65  # detik (animasi responsif dan mulus)
+        self.last_trigger_time = 0.0
+        self.hand_history = []  # list of (timestamp, y_left, y_right, x_left, x_right)
+
+    def reset(self):
+        self.is_bw = False
+        self.in_transition = False
+        self.target_bw = False
+        self.hand_history.clear()
+        self.last_trigger_time = 0.0
+
+    def trigger_toggle(self, now):
+        """Memicu transisi push filter dari atas (toggle B&W <-> Color)."""
+        self.in_transition = True
+        self.target_bw = not self.is_bw
+        self.transition_start_time = now
+        self.last_trigger_time = now
+
+    def update_and_detect_gesture(self, hands_data, now, is_other_gesture_busy=False):
+        """
+        Mendeteksi apakah kedua tangan melakukan gerakan menarik dari atas ke bawah.
+        """
+        detected_text = None
+
+        if self.in_transition or is_other_gesture_busy:
+            self.hand_history.clear()
+            return detected_text
+
+        if len(hands_data) < 2:
+            self.hand_history.clear()
+            return detected_text
+
+        # Pisahkan kedua tangan berdasarkan posisi horizontal (kiri vs kanan)
+        h1, h2 = hands_data[0], hands_data[1]
+        lm1, _, to_s1 = h1
+        lm2, _, to_s2 = h2
+
+        p1_wrist = to_s1(lm1[WRIST])
+        p2_wrist = to_s2(lm2[WRIST])
+
+        if p1_wrist[0] <= p2_wrist[0]:
+            h_left, h_right = h1, h2
+            w_left, w_right = p1_wrist, p2_wrist
+        else:
+            h_left, h_right = h2, h1
+            w_left, w_right = p2_wrist, p1_wrist
+
+        # Kedua tangan harus memiliki jarak horizontal yang cukup (bukan bertumpuk/bersentuhan)
+        dx = w_right[0] - w_left[0]
+        if dx < 90:
+            self.hand_history.clear()
+            return detected_text
+
+        lm_l, _, to_sl = h_left
+        lm_r, _, to_sr = h_right
+
+        mcp_l = to_sl(lm_l[MIDDLE_MCP])
+        mcp_r = to_sr(lm_r[MIDDLE_MCP])
+
+        y_left = (w_left[1] + mcp_l[1]) * 0.5
+        y_right = (w_right[1] + mcp_r[1]) * 0.5
+        x_left = (w_left[0] + mcp_l[0]) * 0.5
+        x_right = (w_right[0] + mcp_r[0]) * 0.5
+
+        # Simpan ke riwayat pergerakan tangan
+        self.hand_history.append((now, y_left, y_right, x_left, x_right))
+
+        # Pangkas riwayat yang lebih lama dari 0.45 detik
+        self.hand_history = [entry for entry in self.hand_history if now - entry[0] <= 0.45]
+
+        # Evaluasi gerakan menarik ke bawah jika ada riwayat minimal ~0.10 detik (3-4 frame)
+        if len(self.hand_history) >= 3 and (now - self.hand_history[0][0]) >= 0.10:
+            t_old, yl_old, yr_old, xl_old, xr_old = self.hand_history[0]
+            dt = now - t_old
+
+            dy_l = y_left - yl_old
+            dy_r = y_right - yr_old
+
+            v_l = dy_l / dt
+            v_r = dy_r / dt
+
+            # Syarat gerakan menarik ke bawah:
+            # 1. Kedua tangan bergerak ke bawah secara bersamaan (> 55 px)
+            # 2. Kecepatan ke bawah cukup tinggi (> 150 px/detik)
+            # 3. Cooldown minimal 1.2 detik sejak aktivasi terakhir
+            if (
+                dy_l > 55.0
+                and dy_r > 55.0
+                and v_l > 150.0
+                and v_r > 150.0
+                and (now - self.last_trigger_time) > 1.20
+            ):
+                self.trigger_toggle(now)
+                self.hand_history.clear()
+                action_name = "B&W 🎬" if self.target_bw else "Color 🌈"
+                detected_text = f"Tarik Bawah: Push Filter {action_name} ⬇️"
+                return detected_text
+
+        return detected_text
+
+    def render_and_apply(self, frame, foreground_particles, now):
+        """
+        Menerapkan filter Black & White dan merender animasi push dari atas.
+        Mengembalikan teks status jika aktif/sedang transisi.
+        """
+        h, w = frame.shape[:2]
+        detected_text = None
+
+        if self.in_transition:
+            raw_t = min(1.0, (now - self.transition_start_time) / self.transition_duration)
+            # Smoothstep curve untuk gerakan tirai yang alami
+            t = raw_t * raw_t * (3.0 - 2.0 * raw_t)
+            split_y = int(t * h)
+
+            # Siapkan versi Black & White monokrom sinematik
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            bw = cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
+            cv2.convertScaleAbs(bw, dst=bw, alpha=1.06, beta=-6)
+
+            if self.target_bw:
+                # Push B&W dari atas ke bawah:
+                # Bagian 0 -> split_y: Black & White
+                # Bagian split_y -> h: Warna Asli
+                frame[:split_y, :] = bw[:split_y, :]
+                detected_text = f"Push Filter B&W: {int(raw_t * 100)}% ⬇️"
+            else:
+                # Push Warna Asli dari atas ke bawah (menggantikan B&W):
+                # Bagian 0 -> split_y: Warna Asli
+                # Bagian split_y -> h: Black & White
+                frame[split_y:, :] = bw[split_y:, :]
+                detected_text = f"Push Filter Color: {int(raw_t * 100)}% ⬇️"
+
+            # Render Garis Pembatas Laser / Tirai di posisi split_y
+            if 0 < split_y < h:
+                # Laser beam putih di tengah
+                cv2.line(frame, (0, split_y), (w, split_y), (255, 255, 255), 3, cv2.LINE_AA)
+                # Glow neon cyan di sisi atas dan bawah
+                if split_y > 1:
+                    cv2.line(frame, (0, split_y - 1), (w, split_y - 1), (0, 240, 255), 1, cv2.LINE_AA)
+                if split_y < h - 1:
+                    cv2.line(frame, (0, split_y + 1), (w, split_y + 1), (0, 240, 255), 1, cv2.LINE_AA)
+
+                # Percikan laser sparkle di sepanjang garis tirai yang bergerak turun
+                for _ in range(2):
+                    foreground_particles.append(
+                        SparkleParticle(
+                            random.uniform(20, w - 20),
+                            float(split_y + random.uniform(-3, 3)),
+                            color=random.choice([(255, 255, 255), (0, 240, 255), (255, 215, 60)]),
+                        )
+                    )
+
+            if raw_t >= 1.0:
+                self.in_transition = False
+                self.is_bw = self.target_bw
+
+        elif self.is_bw:
+            # Filter Black & White aktif secara penuh
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            bw = cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
+            cv2.convertScaleAbs(bw, dst=frame, alpha=1.06, beta=-6)
+            detected_text = "Filter: Black & White [🎬]"
+
+        return detected_text
+
+
 # ----------------- DRAW HUD -----------------
 def draw_hud(
     frame,
@@ -1103,6 +1288,8 @@ def draw_hud(
     crystal_active=False,
     slingshot_busy=False,
     fog_active=False,
+    is_bw=False,
+    is_bw_transition=False,
 ):
     """Menampilkan status gesture, status unlock bunga, dan FPS dengan tampilan negatif/kontras tinggi."""
     h, w = frame.shape[:2]
@@ -1112,7 +1299,10 @@ def draw_hud(
     pill_color = (40, 40, 40)
     text_color = (255, 255, 255)
 
-    if "Kristal" in pill_text or "Crystal" in pill_text:
+    if "B&W" in pill_text or "Black & White" in pill_text or "Push Filter" in pill_text:
+        pill_color = (25, 25, 25)
+        text_color = (250, 250, 250)
+    elif "Kristal" in pill_text or "Crystal" in pill_text:
         pill_color = (80, 40, 100)  # Kristal Holografik Ungu-Emas
         text_color = (255, 235, 140)
     elif "Ketapel" in pill_text or "Peluru" in pill_text:
@@ -1155,6 +1345,13 @@ def draw_hud(
     cv2.putText(frame, pill_text, (28, 44), cv2.FONT_HERSHEY_DUPLEX, 0.58, text_color, 1, cv2.LINE_AA)
     status_sub = []
     status_sub.append("Bunga: [UNLOCKED 🌸]" if gesture1_unlocked else "Bunga: [TERKUNCI 🔒]")
+    if is_bw_transition:
+        status_sub.append("Filter: [PUSH ⬇️]")
+    elif is_bw:
+        status_sub.append("Filter: [B&W 🎬]")
+    else:
+        status_sub.append("Filter: [COLOR 🌈]")
+
     if fog_active:
         status_sub.append("Kamera: [BEREMBUN 🌫️]")
     elif slingshot_busy:
@@ -1186,7 +1383,7 @@ def draw_hud(
     # Tombol shortcut kontrol
     cv2.putText(
         frame,
-        "ESC: Out | R: Reset | L: Landmark | C: Clear",
+        "ESC: Out | R: Reset | B: B&W | L: Mark | C: Clr",
         (rx1 + 16, 64),
         cv2.FONT_HERSHEY_PLAIN,
         0.82,
@@ -1254,6 +1451,7 @@ def main():
     crystal_smoothing_factor = 0.35
 
     slingshot_manager = SlingshotManager()
+    bw_filter_manager = BlackWhiteFilterManager()
 
     print("\n=======================================================")
     print("Filter Berhasil Dijalankan (Locked 30 FPS)!")
@@ -1262,7 +1460,8 @@ def main():
     print("3. TELUNJUK Kiri & Kanan SENTUH -> Persegi Panjang Muncul & Bisa di-TWIST 360° 📐")
     print("4. TELAPAK BERSENTUHAN & MEKAR  -> Objek 3D Kristal Prisma Holografik 💎")
     print("5. EFEK KETAPEL & USAP KAMERA   -> Ketapel ke Kamera (Frosted Blur) & Usap untuk Bersihkan! 🏹🖐️")
-    print("Tombol: 'ESC' keluar, 'R' reset, 'L' landmark, 'C' clear partikel.")
+    print("6. DUA TANGAN TARIK KE BAWAH    -> Filter Black & White (B&W) Sinematik Push dari Atas 🎬⬇️")
+    print("Tombol: 'ESC' keluar, 'B' toggle B&W, 'R' reset, 'L' landmark, 'C' clear partikel.")
     print("=======================================================\n")
 
     while cap.isOpened():
@@ -1476,6 +1675,14 @@ def main():
                         else:
                             detected_gestures.append("Jempol Nunjuk Diri [Terkunci: Nunjuk Dulu ☝️]")
 
+        # ================= GESTURE 6: DUA TANGAN MENARIK DARI ATAS KE BAWAH (PUSH FILTER B&W) =================
+        is_other_busy = is_slingshot_busy or crystal_active or frame_active or is_index_touching
+        bw_gesture_text = bw_filter_manager.update_and_detect_gesture(
+            hands_data, now, is_other_gesture_busy=is_other_busy
+        )
+        if bw_gesture_text:
+            detected_gestures.append(bw_gesture_text)
+
         # ================= RENDERING BUNGA DI BELAKANG SUBJEK =================
         # Update partikel bunga (dibatasi 28 partikel agar FPS stabil terkunci di 30)
         flower_particles = [p for p in flower_particles if p.update(dt)]
@@ -1503,6 +1710,11 @@ def main():
             else:
                 display_frame = bg_frame
 
+        # ================= GESTURE 6: APLIKASIKAN FILTER BLACK & WHITE (PUSH DARI ATAS) =================
+        bw_render_text = bw_filter_manager.render_and_apply(display_frame, foreground_particles, now)
+        if bw_render_text and not bw_gesture_text:
+            detected_gestures.append(bw_render_text)
+
         # ================= RENDERING FOREGROUND PARTICLES =================
         # Partikel love / sparkle di depan tangan pengguna (dibatasi 24 partikel)
         foreground_particles = [p for p in foreground_particles if p.update(dt)]
@@ -1523,9 +1735,11 @@ def main():
             crystal_active,
             slingshot_busy=is_slingshot_busy,
             fog_active=slingshot_manager.fog_active,
+            is_bw=bw_filter_manager.is_bw,
+            is_bw_transition=bw_filter_manager.in_transition,
         )
 
-        cv2.imshow("Hand Gesture Filter - Love, Bunga, Persegi, 3D Kristal, & Ketapel Blur", display_frame)
+        cv2.imshow("Hand Gesture Filter - Love, Bunga, Persegi, 3D Kristal, Ketapel, & Filter B&W", display_frame)
 
         # Precise Frame Pacer: Sinkronisasi tepat ke ritme 30.0 FPS
         elapsed = time.perf_counter() - loop_start
@@ -1546,6 +1760,8 @@ def main():
 
         if key in (27, ord("q"), ord("Q")):
             break
+        elif key in (ord("b"), ord("B")):
+            bw_filter_manager.trigger_toggle(now)
         elif key in (ord("l"), ord("L")):
             show_landmarks = not show_landmarks
         elif key in (ord("c"), ord("C")):
@@ -1558,6 +1774,7 @@ def main():
             smoothed_angle = None
             smoothed_crystal_data = None
             slingshot_manager.reset()
+            bw_filter_manager.reset()
             flower_particles.clear()
             foreground_particles.clear()
 
