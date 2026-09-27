@@ -27,12 +27,13 @@ Filter webcam real-time interaktif berbasis **OpenCV** dan **MediaPipe Tasks (Ha
    - **Lepaskan Cubitan**: Peluru energi melesat kencang menuju lensa kamera (3D zoom, radial speed lines, trail particles).
    - **Tabrakan (Impact)**: Guncangan layar (*screen shake*), kilatan cahaya (*white flash*), dan seluruh tampilan kamera berubah menjadi **kaca berembun / frosted glass blur**!
    - **Usap Kamera Jadi Bersih**: Cukup usapkan telapak tangan Anda di depan kamera seperti mengusap kaca jendela berembun. Sapuan tangan Anda akan menghapus embun secara real-time dengan percikan air berkilau hingga kamera jernih kembali 100%!
-6. **Dua Tangan Menarik dari Atas ke Bawah -> Filter Black & White (Push dari Atas)** 🎬⬇️
+6. **Dua Tangan Menarik dari Atas ke Bawah -> Filter Black & White (Hanya Aktif Saat Blur Aktif)** 🎬⬇️
+   - **Syarat**: Efek ini **hanya dapat diaktifkan saat efek embun/blur kamera (dari ketapel) sedang aktif**.
    - Letakkan kedua tangan di bagian atas lalu gerakkan menarik ke bawah secara bersamaan (*two-hand downward pull*).
    - Memicu **animasi transisi tirai/laser push dari atas ke bawah**:
      - Garis laser pembatas neon bercahaya menyapu dari $y=0$ turun ke bawah dengan taburan percikan kilau (*laser sparks*).
      - Mengubah kamera menjadi **filter Black & White (B&W) monokrom sinematik** dengan kontras tinggi ala film noir.
-   - **Toggle Reversibel**: Menarik kedua tangan ke bawah lagi akan mendorong (*push*) kembali filter warna asli dari atas ke bawah!
+   - **Sinkronisasi Pembersihan**: Menarik tangan lagi akan toggle warna, dan jika lensa kamera diusap hingga bersih (*blur* hilang), filter B&W akan otomatis kembali ke warna normal (*auto-reset*).
 
 ---
 

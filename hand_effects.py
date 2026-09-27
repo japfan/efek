@@ -1123,18 +1123,28 @@ class BlackWhiteFilterManager:
         self.hand_history.clear()
         self.last_trigger_time = 0.0
 
-    def trigger_toggle(self, now):
-        """Memicu transisi push filter dari atas (toggle B&W <-> Color)."""
+    def trigger_toggle(self, now, is_blur_active=True):
+        """Memicu transisi push filter dari atas (toggle B&W <-> Color). Hanya jika blur aktif."""
+        if not is_blur_active:
+            return
         self.in_transition = True
         self.target_bw = not self.is_bw
         self.transition_start_time = now
         self.last_trigger_time = now
 
-    def update_and_detect_gesture(self, hands_data, now, is_other_gesture_busy=False):
+    def update_and_detect_gesture(self, hands_data, now, is_blur_active=False, is_other_gesture_busy=False):
         """
         Mendeteksi apakah kedua tangan melakukan gerakan menarik dari atas ke bawah.
+        Syarat: Efek B&W HANYA aktif jika efek blur (embun kamera dari ketapel) sedang aktif!
         """
         detected_text = None
+
+        # Jika blur tidak aktif, B&W tidak dapat diaktifkan dan langsung di-reset
+        if not is_blur_active:
+            if self.is_bw or self.in_transition:
+                self.reset()
+            self.hand_history.clear()
+            return detected_text
 
         if self.in_transition or is_other_gesture_busy:
             self.hand_history.clear()
@@ -1212,13 +1222,18 @@ class BlackWhiteFilterManager:
 
         return detected_text
 
-    def render_and_apply(self, frame, foreground_particles, now):
+    def render_and_apply(self, frame, foreground_particles, now, is_blur_active=False):
         """
         Menerapkan filter Black & White dan merender animasi push dari atas.
-        Mengembalikan teks status jika aktif/sedang transisi.
+        Hanya diaplikasikan jika efek blur (embun kamera) sedang aktif!
         """
         h, w = frame.shape[:2]
         detected_text = None
+
+        if not is_blur_active:
+            if self.is_bw or self.in_transition:
+                self.reset()
+            return detected_text
 
         if self.in_transition:
             raw_t = min(1.0, (now - self.transition_start_time) / self.transition_duration)
@@ -1345,14 +1360,13 @@ def draw_hud(
     cv2.putText(frame, pill_text, (28, 44), cv2.FONT_HERSHEY_DUPLEX, 0.58, text_color, 1, cv2.LINE_AA)
     status_sub = []
     status_sub.append("Bunga: [UNLOCKED 🌸]" if gesture1_unlocked else "Bunga: [TERKUNCI 🔒]")
-    if is_bw_transition:
-        status_sub.append("Filter: [PUSH ⬇️]")
-    elif is_bw:
-        status_sub.append("Filter: [B&W 🎬]")
-    else:
-        status_sub.append("Filter: [COLOR 🌈]")
-
     if fog_active:
+        if is_bw_transition:
+            status_sub.append("Filter: [PUSH ⬇️]")
+        elif is_bw:
+            status_sub.append("Filter: [B&W 🎬]")
+        else:
+            status_sub.append("Filter: [B&W Siap ⬇️]")
         status_sub.append("Kamera: [BEREMBUN 🌫️]")
     elif slingshot_busy:
         status_sub.append("Ketapel: [AKTIF 🏹]")
@@ -1676,9 +1690,11 @@ def main():
                             detected_gestures.append("Jempol Nunjuk Diri [Terkunci: Nunjuk Dulu ☝️]")
 
         # ================= GESTURE 6: DUA TANGAN MENARIK DARI ATAS KE BAWAH (PUSH FILTER B&W) =================
-        is_other_busy = is_slingshot_busy or crystal_active or frame_active or is_index_touching
+        # Syarat mutlak: Efek B&W HANYA aktif jika efek blur (embun kamera dari ketapel) sedang aktif!
+        is_blur_active = slingshot_manager.fog_active
+        is_other_busy = (slingshot_manager.state in ("AIMING", "FLYING")) or crystal_active or frame_active or is_index_touching
         bw_gesture_text = bw_filter_manager.update_and_detect_gesture(
-            hands_data, now, is_other_gesture_busy=is_other_busy
+            hands_data, now, is_blur_active=is_blur_active, is_other_gesture_busy=is_other_busy
         )
         if bw_gesture_text:
             detected_gestures.append(bw_gesture_text)
@@ -1711,7 +1727,10 @@ def main():
                 display_frame = bg_frame
 
         # ================= GESTURE 6: APLIKASIKAN FILTER BLACK & WHITE (PUSH DARI ATAS) =================
-        bw_render_text = bw_filter_manager.render_and_apply(display_frame, foreground_particles, now)
+        # Hanya diaplikasikan jika efek blur sedang aktif!
+        bw_render_text = bw_filter_manager.render_and_apply(
+            display_frame, foreground_particles, now, is_blur_active=is_blur_active
+        )
         if bw_render_text and not bw_gesture_text:
             detected_gestures.append(bw_render_text)
 
@@ -1761,7 +1780,7 @@ def main():
         if key in (27, ord("q"), ord("Q")):
             break
         elif key in (ord("b"), ord("B")):
-            bw_filter_manager.trigger_toggle(now)
+            bw_filter_manager.trigger_toggle(now, is_blur_active=slingshot_manager.fog_active)
         elif key in (ord("l"), ord("L")):
             show_landmarks = not show_landmarks
         elif key in (ord("c"), ord("C")):
